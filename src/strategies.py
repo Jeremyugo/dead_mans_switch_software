@@ -15,7 +15,7 @@ class SendEmail(Strategy):
     
     
     
-class DecryptData(Strategy):
+class EncryptData(Strategy):
     def __init__(self, ):
         pass
     
