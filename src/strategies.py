@@ -49,6 +49,7 @@ class SendEmail(Strategy):
             
         return
 
+
     @staticmethod
     def _zip_path(path: str) -> str:
         zip_name = Path(path).stem + ".zip"
@@ -63,6 +64,7 @@ class SendEmail(Strategy):
                         arcname = os.path.relpath(full_path, start=path)
                         zipf.write(full_path, arcname=arcname)
         return str(zip_path)
+
 
     def _attach_file(self, msg, file_path) -> None:
         mime_type, _ = mimetypes.guess_type(file_path)
@@ -82,7 +84,7 @@ class EncryptData(Strategy):
         self.cipher = Fernet(key)
     
     
-    def execute(self):
+    def execute(self) -> None:
         if self.file_path and os.path.exists(self.file_path):
             zip_path = SendEmail._zip_path(self.file_path)
             with open(zip_path, 'rb') as f:
@@ -97,7 +99,7 @@ class EncryptData(Strategy):
         return
     
     
-    def _load_cryptography_key(self,):
+    def _load_cryptography_key(self,) -> bytes:
         key = os.getenv('cryptography_key')
         
         if not key:
@@ -108,6 +110,44 @@ class EncryptData(Strategy):
             log.success('Create new cryptography key')
 
         return key
+
+
+class DecryptData(Strategy):
+    def __init__(self, file_path: str):
+        self.encrypted_path = file_path
+        key = eval(self._load_cryptography_key())
+        self.cipher = Fernet(key)
+        
+    
+    def execute(self) -> None:
+        if not os.path.exists(self.encrypted_path):
+            raise FileNotFoundError(f"{self.encrypted_path} not found")
+
+        with open(self.encrypted_path, 'rb') as f:
+            encrypted_data = f.read()
+
+        decrypted_data = self.cipher.decrypt(encrypted_data)
+
+        zip_path = self.encrypted_path.replace('.enc', '')
+        with open(zip_path, 'wb') as f:
+            f.write(decrypted_data)
+
+        extract_path = zip_path.replace('.zip', '')
+        with zipfile.ZipFile(zip_path, 'r') as zipf:
+            zipf.extractall(extract_path)
+
+        os.remove(zip_path)
+
+        return 
+    
+    
+    def _load_cryptography_key(self,) -> bytes:
+        key = os.getenv('cryptography_key')
+        if not key:
+            raise ValueError('Cryptography key not found in environment')
+        
+        return key
+        
 
     
 class DeleteData(Strategy):
