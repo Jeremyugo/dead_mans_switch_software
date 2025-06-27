@@ -1,10 +1,18 @@
 import os
+import sys
+from dotenv import load_dotenv
 import smtplib
 import zipfile
+from loguru import logger as log
 import mimetypes
 from pathlib import Path
 from email.message import EmailMessage
 from abc import ABC, abstractmethod
+
+from cryptography.fernet import Fernet
+
+ENV_FILE = '../.env'
+load_dotenv(ENV_FILE)
 
 class Strategy(ABC):
     @abstractmethod
@@ -13,14 +21,14 @@ class Strategy(ABC):
     
 
 class SendEmail(Strategy):
-    def __init__(self, email_address, sender_password, path=None):
+    def __init__(self, email_address: str, sender_password: str, path: str|None = None):
         self.sender_email = email_address
         self.recipient_email = email_address
         self.sender_password = sender_password
         self.path = path
         
     
-    def execute(self, subject: str = "Automated Email", body: str ="Attached file (if any)"):
+    def execute(self, subject: str = "Automated Email", body: str ="Attached file (if any)") -> None:
         msg = EmailMessage()
         msg["From"] = self.sender_email
         msg["To"] = self.recipient_email
@@ -41,7 +49,8 @@ class SendEmail(Strategy):
             
         return
 
-    def _zip_path(self, path):
+    @staticmethod
+    def _zip_path(path: str) -> str:
         zip_name = Path(path).stem + ".zip"
         zip_path = Path.cwd() / zip_name
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
@@ -55,7 +64,7 @@ class SendEmail(Strategy):
                         zipf.write(full_path, arcname=arcname)
         return str(zip_path)
 
-    def _attach_file(self, msg, file_path):
+    def _attach_file(self, msg, file_path) -> None:
         mime_type, _ = mimetypes.guess_type(file_path)
         mime_type = mime_type or "application/octet-stream"
         maintype, subtype = mime_type.split("/", 1)
@@ -67,14 +76,39 @@ class SendEmail(Strategy):
     
     
 class EncryptData(Strategy):
-    def __init__(self, ):
-        pass
+    def __init__(self, file_path: str):
+        self.file_path = file_path
+        key = eval(self._load_cryptography_key())
+        self.cipher = Fernet(key)
     
     
     def execute(self):
-        pass
+        if self.file_path and os.path.exists(self.file_path):
+            zip_path = SendEmail._zip_path(self.file_path)
+            with open(zip_path, 'rb') as f:
+                data = f.read()
+                
+            encrypted = self.cipher.encrypt(data)
+            encrypted_path = zip_path + '.enc'
+            
+            with open(encrypted_path, 'wb') as f:
+                f.write(encrypted)
+                
+        return
     
     
+    def _load_cryptography_key(self,):
+        key = os.getenv('cryptography_key')
+        
+        if not key:
+            log.info('no cryptography key found. Creating one...')
+            key = Fernet.generate_key()
+            with open(ENV_FILE, 'a') as f:
+                f.write(f'\ncryptography_key={repr(key)}')
+            log.success('Create new cryptography key')
+
+        return key
+
     
 class DeleteData(Strategy):
     def __init__(self):
